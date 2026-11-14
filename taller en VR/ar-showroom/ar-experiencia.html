@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <!-- Viewport para celulares: evita zoom accidental al tocar -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1b2f4b">
+  <title>AR Showroom · Experiencia WebAR con A-Frame</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Paso 1: CDN oficial de A-Frame + aframe-extras -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v7.2.0/dist/aframe-extras.min.js"></script>
+
+  <style>
+    :root {
+      --navy: #1b2f4b;
+      --azul: #3a76ab;
+      --azul-osc: #2c5d8c;
+      --teal: #4a8f9c;
+      --teal-suave: #e3f0f2;
+      --fondo: #eef3f8;
+      --tarjeta: rgba(255, 255, 255, 0.86);
+      --linea: rgba(27, 47, 75, 0.12);
+      --texto: #1b2f4b;
+      --suave: #62718a;
+      --acento: #ffcc00;
+      --radio: 14px;
+      --sombra: 0 10px 30px rgba(27, 47, 75, 0.16), 0 2px 6px rgba(27, 47, 75, 0.08);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    [hidden] { display: none !important; }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--fondo); color: var(--texto);
+    }
+    body.modo-ar { background: transparent; }
+
+    /* Video de la cámara trasera detrás del canvas (modo AR en celular) */
+    #video-camara {
+      position: fixed; inset: 0; width: 100vw; height: 100vh;
+      object-fit: cover; z-index: -1; display: none;
+    }
+    body.modo-ar #video-camara { display: block; }
+
+    svg.ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---------- Botones base ---------- */
+    button {
+      font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--texto);
+      border: 1px solid var(--linea); background: #fff; border-radius: 10px;
+      padding: 0 12px; min-height: 42px; /* área táctil cómoda */
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      transition: background .15s, border-color .15s, transform .1s, box-shadow .15s;
+      white-space: nowrap;
+    }
+    .marca h1 { white-space: nowrap; }
+    @media (max-width: 360px) { .marca h1 { display: none; } }
+    button:hover { border-color: rgba(58,118,171,.5); }
+    button:active { transform: scale(.97); }
+    button:focus-visible, input:focus-visible { outline: 3px solid rgba(58,118,171,.45); outline-offset: 2px; }
+    button.activo { background: var(--azul); color: #fff; border-color: var(--azul); }
+    button.primario { background: var(--navy); color: #fff; border-color: var(--navy); }
+    button.primario:hover { background: #26416a; }
+    button.peligro { color: #b3261e; }
+    button.peligro:hover { background: #fdeceb; border-color: #e8a29d; }
+
+    /* ---------- Barra superior (píldora flotante) ---------- */
+    .barra {
+      position: fixed; z-index: 10; top: calc(14px + env(safe-area-inset-top)); left: 14px; right: 14px;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      pointer-events: none;
+    }
+    .marca {
+      pointer-events: auto; display: flex; align-items: center; gap: 10px;
+      background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 999px;
+      padding: 6px 16px 6px 7px; box-shadow: var(--sombra);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    }
+    .marca-logo {
+      width: 34px; height: 34px; border-radius: 50%; background: var(--navy); color: #fff;
+      display: grid; place-items: center;
+    }
+    .marca-logo svg { width: 19px; height: 19px; }
+    .marca h1 { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.1; }
+    .marca h1 span { color: var(--azul); }
+    .marca small { display: block; color: var(--suave); font-size: 11px; font-weight: 500; }
+    .acciones-barra { pointer-events: auto; display: flex; gap: 8px; }
+    .acciones-barra button { box-shadow: var(--sombra); border-radius: 999px; padding: 0 16px; background: var(--tarjeta); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    .acciones-barra button.activo { background: var(--azul); }
+
+    /* ---------- Panel flotante de controles 2D ---------- */
+    #panel {
+      position: fixed; z-index: 10; right: 14px; top: 76px; width: 324px;
+      max-height: calc(100vh - 96px); display: flex; flex-direction: column;
+      background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 20px;
+      box-shadow: var(--sombra); overflow: hidden;
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      transition: transform .28s ease;
+    }
+    .asa { display: none; }
+
+    .tabs { display: flex; gap: 4px; padding: 6px; margin: 12px 12px 0; background: rgba(27,47,75,.07); border-radius: 12px; }
+    .tab {
+      flex: 1; border: 0; background: transparent; min-height: 38px; color: var(--suave); border-radius: 9px;
+    }
+    .tab:hover { border: 0; color: var(--texto); }
+    .tab[aria-selected="true"] { background: #fff; color: var(--texto); box-shadow: 0 1px 4px rgba(27,47,75,.18); }
+    .insignia {
+      background: var(--teal); color: #fff; border-radius: 999px; font-size: 11px; padding: 1px 7px; min-width: 20px; text-align: center;
+    }
+
+    .vista { padding: 14px 16px 16px; overflow-y: auto; }
+    .grupo { margin-bottom: 16px; }
+    .etiqueta, .grupo > label {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--suave); margin-bottom: 8px;
+    }
+    .etiqueta output, .grupo > label output {
+      font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--azul-osc); font-weight: 700;
+      background: #e8f0f8; padding: 2px 8px; border-radius: 6px; font-variant-numeric: tabular-nums;
+    }
+
+    /* Colores */
+    .colores { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+    .color {
+      width: 36px; height: 36px; min-height: 0; border-radius: 50%; padding: 0;
+      border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(27,47,75,.25);
+    }
+    .color:hover { transform: scale(1.08); border-color: #fff; }
+    .color.seleccionado { box-shadow: 0 0 0 3px var(--navy); }
+    .color-libre {
+      position: relative; width: 36px; height: 36px; border-radius: 50%; overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(27,47,75,.25); border: 3px solid #fff;
+      background: conic-gradient(#ff2a2a, #ffcc00, #2aff6b, #2a75ff, #ff2aee, #ff2a2a);
+    }
+    .color-libre input { position: absolute; inset: -8px; width: 60px; height: 60px; opacity: 0; cursor: pointer; }
+
+    /* Forma: control segmentado */
+    .segmentos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .segmentos button { flex-direction: column; gap: 4px; padding: 8px 4px; min-height: 58px; font-size: 12px; }
+
+    /* Sliders con relleno */
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; margin: 0; --p: 50%;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 6px; border-radius: 6px;
+      background: linear-gradient(to right, var(--azul) var(--p), #d5dfeb var(--p));
+    }
+    input[type="range"]::-moz-range-track { height: 6px; border-radius: 6px; background: #d5dfeb; }
+    input[type="range"]::-moz-range-progress { height: 6px; border-radius: 6px; background: var(--azul); }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 22px; height: 22px; margin-top: -8px; border-radius: 50%;
+      background: #fff; border: 2px solid var(--azul); box-shadow: 0 2px 6px rgba(27,47,75,.3);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 2px solid var(--azul); box-shadow: 0 2px 6px rgba(27,47,75,.3);
+    }
+
+    .doble { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .acciones .ancho { grid-column: 1 / -1; }
+
+    /* Métricas */
+    .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .kpi { background: #fff; border: 1px solid var(--linea); border-radius: var(--radio); padding: 12px; }
+    .kpi b { display: block; font-size: 28px; line-height: 1; font-weight: 800; color: var(--azul); }
+    .kpi small { display: block; margin-top: 6px; color: var(--suave); font-size: 12px; font-weight: 500; }
+    #historial { list-style: none; margin: 0 0 14px; padding: 0; max-height: 260px; overflow-y: auto; border: 1px solid var(--linea); border-radius: var(--radio); background: #fff; }
+    #historial li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; }
+    #historial li + li { border-top: 1px solid var(--linea); }
+    #historial li .que { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    #historial li i { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(27,47,75,.25); }
+    #historial li time { color: var(--suave); font-variant-numeric: tabular-nums; flex: none; }
+    .nota { font-size: 12px; color: var(--suave); margin: 0 0 14px; line-height: 1.45; }
+    .nota code { background: #e8f0f8; padding: 1px 5px; border-radius: 4px; color: var(--azul-osc); }
+
+    /* ---------- Pista de ayuda (abajo, centrada) ---------- */
+    .ayuda {
+      position: fixed; z-index: 9; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+      display: flex; align-items: center; gap: 8px; white-space: nowrap;
+      background: var(--navy); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      box-shadow: var(--sombra); pointer-events: none;
+    }
+    .ayuda .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--acento); animation: pulso 1.6s infinite; }
+    @keyframes pulso { 0%{box-shadow:0 0 0 0 rgba(255,204,0,.7)} 70%{box-shadow:0 0 0 9px rgba(255,204,0,0)} 100%{box-shadow:0 0 0 0 rgba(255,204,0,0)} }
+
+    #toast {
+      position: fixed; z-index: 20; left: 50%; top: 78px; transform: translate(-50%, -16px);
+      background: var(--navy); color: #fff; font-weight: 600; padding: 10px 18px; border-radius: 12px;
+      font-size: 13px; opacity: 0; transition: all .25s ease; pointer-events: none; box-shadow: var(--sombra);
+      border-left: 4px solid var(--acento);
+    }
+    #toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+    #btn-panel { display: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+
+    /* ---------- Celulares: el panel se vuelve una hoja inferior ---------- */
+    @media (max-width: 760px) {
+      .marca small { display: none; }
+      .marca { padding-right: 12px; gap: 8px; }
+      .marca h1 { font-size: 13px; }
+      .acciones-barra { gap: 6px; }
+      .acciones-barra button { padding: 0 11px; }
+      #btn-panel { display: inline-flex; }
+      #panel {
+        left: 0; right: 0; top: auto; bottom: 0; width: auto;
+        max-height: 60vh; border-radius: 22px 22px 0 0;
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      #panel.oculto { transform: translateY(100%); }
+      .asa { display: block; width: 42px; height: 5px; border-radius: 5px; background: rgba(27,47,75,.22); margin: 8px auto 0; }
+      .tabs { margin-top: 8px; }
+      .ayuda { bottom: auto; top: calc(74px + env(safe-area-inset-top)); }
+      body.panel-abierto .ayuda { display: none; }
+      #toast { top: calc(124px + env(safe-area-inset-top)); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Feed de cámara para el modo AR (se activa con el botón "Modo AR") -->
+  <video id="video-camara" autoplay playsinline muted></video>
+
+  <header class="barra">
+    <div class="marca">
+      <div class="marca-logo" aria-hidden="true">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>
+      </div>
+      <h1>AR <span>Showroom</span><small>WebAR con A-Frame</small></h1>
+    </div>
+    <div class="acciones-barra">
+      <button id="btn-ar" title="Usar la cámara del teléfono como fondo">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M14.5 4h-5L8 6H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3l-1.5-2Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        <span class="txt">Modo AR</span>
+      </button>
+      <button id="btn-panel">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        <span class="txt">Panel</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="ayuda" id="ayuda"><span class="punto"></span>Toca o haz clic en el producto</div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ================= PANEL FLOTANTE DE CONTROLES 2D ================= -->
+  <aside id="panel" aria-label="Controles del objeto 3D">
+    <div class="asa"></div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" id="t-personalizar" data-tab="personalizar" aria-selected="true" aria-controls="tab-personalizar">Personalizar</button>
+      <button class="tab" role="tab" id="t-metricas" data-tab="metricas" aria-selected="false" aria-controls="tab-metricas">Métricas <span class="insignia" id="badge-total">0</span></button>
+    </nav>
+
+    <!-- ===== Pestaña 1: personalizar ===== -->
+    <section class="vista" id="tab-personalizar" role="tabpanel" aria-labelledby="t-personalizar">
+
+      <div class="grupo">
+        <div class="etiqueta">Color</div>
+        <div class="colores" id="paleta">
+          <button class="color" data-color="#FF2A2A" style="background:#FF2A2A" aria-label="Rojo"></button>
+          <button class="color" data-color="#2AFF6B" style="background:#2AFF6B" aria-label="Verde"></button>
+          <button class="color" data-color="#2A75FF" style="background:#2A75FF" aria-label="Azul"></button>
+          <button class="color" data-color="#FF2AEE" style="background:#FF2AEE" aria-label="Rosa"></button>
+          <button class="color" data-color="#FFCC00" style="background:#FFCC00" aria-label="Amarillo"></button>
+          <label class="color-libre" title="Color personalizado">
+            <input type="color" id="color-libre" value="#ffffff" aria-label="Color personalizado">
+          </label>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <div class="etiqueta">Forma</div>
+        <div class="segmentos">
+          <button class="forma activo" data-forma="box">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>Caja
+          </button>
+          <button class="forma" data-forma="sphere">
+            <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>Esfera
+          </button>
+          <button class="forma" data-forma="cylinder">
+            <svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"/><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13"/></svg>Cilindro
+          </button>
+        </div>
+      </div>
+
+      <div class="grupo">
+        <label for="rng-escala">Escala <output id="out-escala">1.00</output></label>
+        <input type="range" id="rng-escala" min="0.4" max="1.8" step="0.05" value="1">
+      </div>
+
+      <div class="doble">
+        <div class="grupo">
+          <label for="rng-metal">Metalness <output id="out-metal">0.60</output></label>
+          <input type="range" id="rng-metal" min="0" max="1" step="0.05" value="0.6">
+        </div>
+        <div class="grupo">
+          <label for="rng-rugosidad">Roughness <output id="out-rugosidad">0.30</output></label>
+          <input type="range" id="rng-rugosidad" min="0" max="1" step="0.05" value="0.3">
+        </div>
+      </div>
+
+      <div class="grupo">
+        <label for="rng-distancia">Distancia (Z) <output id="out-distancia">-3.0 m</output></label>
+        <input type="range" id="rng-distancia" min="-4" max="-2" step="0.1" value="-3">
+      </div>
+
+      <div class="acciones">
+        <button id="btn-girar" class="primario ancho">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Girar 360°
+        </button>
+        <button id="btn-auto">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8V4Z"/></svg><span class="txt">Auto-giro</span>
+        </button>
+        <button id="btn-reset">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Reset
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== Pestaña 2: métricas ===== -->
+    <section class="vista" id="tab-metricas" role="tabpanel" aria-labelledby="t-metricas" hidden>
+      <div class="kpis">
+        <div class="kpi"><b id="kpi-clics">0</b><small>Toques al producto</small></div>
+        <div class="kpi"><b id="kpi-cambios">0</b><small>Cambios en panel</small></div>
+      </div>
+
+      <div class="etiqueta">Historial reciente</div>
+      <ul id="historial"></ul>
+
+      <p class="nota">Se guardan en LocalStorage (clave <code>arShowroomMetricas</code>). Revísalas en F12 → Application → Local Storage.</p>
+
+      <button id="btn-borrar" class="peligro" style="width:100%">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></svg>Borrar métricas
+      </button>
+    </section>
+  </aside>
+
+  <!-- ======================= ESCENA A-FRAME ======================= -->
+  <!-- renderer alpha permite ver la cámara del teléfono detrás de la escena -->
+  <a-scene
+    id="escena"
+    renderer="alpha: true; antialias: true; colorManagement: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: true"
+    loading-screen="dotsColor: #3a76ab; backgroundColor: #eef3f8">
+
+    <!-- Iluminación -->
+    <a-entity light="type: ambient; intensity: 0.75"></a-entity>
+    <a-entity light="type: directional; intensity: 0.9; castShadow: true" position="2 4 1"></a-entity>
+    <a-entity light="type: point; intensity: 0.5; color: #4a8f9c" position="-2 2.5 -2"></a-entity>
+
+    <!-- Entorno (se oculta en Modo AR para ver el mundo real) -->
+    <a-entity id="entorno">
+      <a-sky color="#dbe7f3"></a-sky>
+      <a-circle rotation="-90 0 0" radius="12" color="#f4f8fc" shadow="receive: true"></a-circle>
+      <a-ring rotation="-90 0 0" position="0 0.01 -3" radius-inner="0.9" radius-outer="0.95" color="#3a76ab" opacity="0.6"></a-ring>
+    </a-entity>
+
+    <!-- Paso 2: Producto 3D en zona ergonómica (Z = -3 m, a la altura de los ojos) -->
+    <a-box
+      id="objeto-producto"
+      class="clickable"
+      position="0 1.2 -3"
+      rotation="0 45 0"
+      scale="1 1 1"
+      color="#FF2A2A"
+      material="roughness: 0.3; metalness: 0.6"
+      shadow="cast: true"
+      animation__flotar="property: object3D.position.y; from: 1.2; to: 1.3; dir: alternate; loop: true; dur: 1800; easing: easeInOutSine">
+    </a-box>
+
+    <!-- World-Space UI: etiqueta 3D sobre el producto -->
+    <a-text id="etiqueta" value="Toca el producto" align="center" color="#1b2f4b"
+            width="3" position="0 2.15 -3"></a-text>
+
+    <!-- Paso 3: Cámara a altura humana + cursor espacial (Raycaster) -->
+    <!-- rayOrigin: mouse => el rayo sale desde donde tocas/haces clic (funciona en celular) -->
+    <a-camera position="0 1.6 0"
+              look-controls="touchEnabled: true; magicWindowTrackingEnabled: true; pointerLockEnabled: false"
+              wasd-controls="enabled: false">
+      <a-cursor
+        id="cursor-raycast"
+        color="#FFCC00"
+        fuse="false"
+        cursor="rayOrigin: mouse; fuse: false"
+        raycaster="objects: .clickable; far: 20"
+        visible="false">
+        <!-- El anillo se oculta porque el rayo sigue al dedo/ratón, no al centro -->
+      </a-cursor>
+    </a-camera>
+  </a-scene>
+
+  <!-- Paso 4: lógica de interacción -->
+  <script src="js/ar-app.js"></script>
+</body>
+</html>
